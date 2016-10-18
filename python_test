@@ -1,0 +1,102 @@
+import numpy as np
+import math
+import scipy as sp
+from scipy.optimize import brentq
+import operator
+import matplotlib.pyplot as plt
+import quantecon
+import csv
+import random
+
+beta = .98
+alpha = .3
+hstar = .3
+
+def steadystate(betastar,alphastar,hstar):
+    deltastar = ((betastar)**(-1)-1)/((alphastar/.16)-1)
+    kstar = hstar*(.16/deltastar)**(1/(1-alphastar))
+    istar = deltastar*kstar
+    ystar = kstar**alphastar*hstar**(1-alphastar)
+    cstar = ystar - istar
+    thetastar = (((1-alphastar)*(1-hstar)/cstar)*((kstar/hstar)**alphastar)+1)**(-1)
+    return deltastar, kstar, istar, ystar, cstar, thetastar
+
+delta, kstar, istar, ystar, cstar, theta = steadystate(beta,alpha,hstar)
+print(steadystate(beta,alpha,hstar))
+
+
+
+#Setting up our grid
+A = 1
+kmin = 0.5*kstar
+kmax = 1.5*kstar
+N = 201
+kgrid = np.linspace(kmin,kmax,N)
+negative_bajillion = -10000000000000
+
+#Defining utility
+def utility(kgrid,cstar,hstar,A,alpha,delta,theta,N):
+    c_policy = np.zeros((N,N))
+    h_policy = np.zeros((N,N))
+    u_value = np.zeros((N,N))
+    for n in range(0,len(kgrid)):
+        for nprime in range(0,len(kgrid)):
+            h_root = lambda h: (1-h)/(1-theta) - (kgrid[n]**alpha*h - kgrid[nprime]*h**alpha + (1-delta)*kgrid[n]*h**alpha)/(theta*(1-alpha)*kgrid[n]**alpha)
+            if kgrid[nprime]-(1-delta)*kgrid[n] >= 0:
+                h_min = ((kgrid[nprime]-(1-delta)*kgrid[n])/(kgrid[n]**alpha))**(1/(1-alpha))
+            else:
+                h_min = 0
+            h_max = .99
+            if h_root(h_min) > 0 and h_root(h_max) < 0:
+                h = brentq(h_root,h_min,h_max)
+            else:
+                h = h_min
+            c = kgrid[n]**alpha*h**(1-alpha)+(1-delta)*kgrid[n]-kgrid[nprime]
+            if c>0 and h>0 and h < 1 and kgrid[nprime] >= (1-delta)*kgrid[n]:
+                u_value[n,nprime] = theta*math.log(c) + (1-theta)*math.log(1-h)
+                c_policy[n,nprime] = c
+                h_policy[n,nprime] = h
+            else:
+                u_value[n,nprime] = negative_bajillion
+    return u_value, c_policy, h_policy
+
+u_value, c_policy, h_policy = utility(kgrid,cstar,hstar,A,alpha,delta,theta,N)
+
+#Creating our Bellman iteration
+
+def iterate_bellman(v,kgrid,alpha,beta,delta,theta,u_value):
+    v_new = np.zeros(N)
+    n_new = np.zeros(N,dtype=np.int)
+    util = np.zeros(N)
+    for n in range(0,N):
+        for nprime in range(0,N):
+            util[nprime] = u_value[n,nprime] + beta*v[nprime]
+            v_new[n] = max(util)
+            n_new[n] = np.argmax(util)
+    return v_new, n_new
+
+def solve_bellman(v0, kgrid, alpha, beta, delta, theta, u):
+    epsilon = 1e-6
+    diff = 1.
+    v, nprime = iterate_bellman(v0,kgrid,alpha,beta,delta,theta,u)
+    while diff > epsilon:
+        v_new, n_new = iterate_bellman(v0,kgrid,alpha,beta,delta,theta,u)
+        diff = np.linalg.norm(v_new-v)
+        v = v_new
+    return v, n_new
+
+v, nprime = solve_bellman(np.zeros(N),kgrid,alpha,beta,delta,theta,u_value)
+
+#Creating our plots
+
+plt.plot(kgrid, kprime, 'ro')
+plt.title('Constrained Asset Policy Rule')
+plt.show()
+
+plt.plot(kgrid, c_policy_optimal, 'ro')
+plt.title('Constrained Consumption Policy Rule')
+plt.show()
+
+plt.plot(kgrid, h_policy_optimal, 'ro')
+plt.title('Constrained Labor Policy Rule')
+plt.show()
